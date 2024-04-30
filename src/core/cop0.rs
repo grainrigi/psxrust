@@ -9,6 +9,8 @@ pub struct Cop0 {
     reg_cause: u32,
     reg_cache: u32,
     reg_epc: u32,
+    int_mask: u16,
+    int_reqs: u16,
 }
 
 #[derive(Copy, Clone)]
@@ -32,6 +34,8 @@ impl Cop0 {
             reg_cause: 0,
             reg_cache: 0,
             reg_epc: 0,
+            int_mask: 0,
+            int_reqs: 0,
         }
     }
 
@@ -127,9 +131,25 @@ impl Cop0 {
             self.raise_exception(&e, mu);
         }
         if mu.exception_return {
-            self.return_from_exception(mu);
+            self.return_from_exception();
         }
         Ok(())
+    }
+
+    pub fn int_stat(&self) -> u32 {
+        self.int_reqs as u32
+    }
+
+    pub fn int_mask(&self) -> u32 {
+        self.int_mask as u32
+    }
+
+    pub fn int_set_mask(&mut self, mask: u32) {
+        self.int_mask = mask as u16;
+    }
+
+    pub fn int_set_stat(&mut self, stat: u32) {
+        self.int_reqs = stat as u16;
     }
 
     fn raise_exception(&mut self, e: &Cop0ExceptionParams, mu: &mut MachineMutation) {
@@ -147,7 +167,7 @@ impl Cop0 {
         println!("COP0: CAUSE <= {:08X}", self.reg_cause);
     }
 
-    fn return_from_exception(&mut self, mu: &mut MachineMutation) {
+    fn return_from_exception(&mut self) {
         self.pop_mode();
         println!("COP0: STATUS <= {:08X}", self.reg_status);
         println!("COP0: CACHE <= {:08X}", self.reg_cache);

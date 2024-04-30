@@ -1,10 +1,10 @@
-use super::{machine::Machine, mem_load, mem_store, MachineMutation, MemOpSize};
+use super::{ioport::IoPort, machine::Machine, mem_load, mem_store, MachineMutation, MemOpSize};
 
 struct MemoryRegion {
     base: u32,
     size: u32,
-    load: fn(&Machine, u32, MemOpSize) -> u32,
-    store: fn(&mut Machine, u32, u32, MemOpSize),
+    load: fn(&Machine, u32, MemOpSize) -> Result<u32, String>,
+    store: fn(&mut Machine, u32, u32, MemOpSize) -> Result<(), String>,
 }
 
 pub struct Bus {
@@ -18,9 +18,10 @@ fn bios_region(base: u32) -> MemoryRegion {
         // OSROM
         base,
         size: 0x80000,
-        load: |m: &Machine, addr: u32, size: MemOpSize| mem_load(&m.bios, addr, size),
+        load: |m: &Machine, addr: u32, size: MemOpSize| Ok(mem_load(&m.bios, addr, size)),
         store: |m: &mut Machine, addr: u32, val: u32, size: MemOpSize| {
-            mem_store(&mut m.bios, addr, val, size)
+            mem_store(&mut m.bios, addr, val, size);
+            Ok(())
         },
     }
 }
@@ -29,9 +30,12 @@ fn ram_region(base: u32) -> MemoryRegion {
     MemoryRegion {
         base,
         size: 0x200000 * 4,
-        load: |m: &Machine, addr: u32, size: MemOpSize| mem_load(&m.ram, addr & 0x001FFFFF, size),
+        load: |m: &Machine, addr: u32, size: MemOpSize| {
+            Ok(mem_load(&m.ram, addr & 0x001FFFFF, size))
+        },
         store: |m: &mut Machine, addr: u32, val: u32, size: MemOpSize| {
-            mem_store(&mut m.ram, addr & 0x001FFFFF, val, size)
+            mem_store(&mut m.ram, addr & 0x001FFFFF, val, size);
+            Ok(())
         },
     }
 }
@@ -40,9 +44,10 @@ fn dcache_region(base: u32) -> MemoryRegion {
     MemoryRegion {
         base,
         size: 0x400,
-        load: |m: &Machine, addr: u32, size: MemOpSize| mem_load(&m.dcache, addr, size),
+        load: |m: &Machine, addr: u32, size: MemOpSize| Ok(mem_load(&m.dcache, addr, size)),
         store: |m: &mut Machine, addr: u32, val: u32, size: MemOpSize| {
-            mem_store(&mut m.dcache, addr, val, size)
+            mem_store(&mut m.dcache, addr, val, size);
+            Ok(())
         },
     }
 }
@@ -52,12 +57,13 @@ fn exp0_region(base: u32) -> MemoryRegion {
     MemoryRegion {
         base,
         size: 0x800000,
-        load: |m: &Machine, addr: u32, size: MemOpSize| {
+        load: |_: &Machine, addr: u32, _: MemOpSize| {
             println!("WARN: Unhandled EXP0 read at 0x{:08X}", addr);
-            0
+            Ok(0)
         },
-        store: |m: &mut Machine, addr: u32, val: u32, size: MemOpSize| {
+        store: |_: &mut Machine, addr: u32, _: u32, _: MemOpSize| {
             println!("WARN: Unhandled EXP0 write at 0x{:08X}", addr);
+            Ok(())
         },
     }
 }
@@ -66,13 +72,8 @@ fn io_region(base: u32) -> MemoryRegion {
     MemoryRegion {
         base,
         size: 0x1080,
-        load: |m: &Machine, addr: u32, size: MemOpSize| {
-            println!("WARN: Unhandled IO read at 0x{:08X}", addr);
-            0
-        },
-        store: |m: &mut Machine, addr: u32, val: u32, size: MemOpSize| {
-            println!("WARN: Unhandled IO write at 0x{:08X}", addr);
-        },
+        load: |m: &Machine, addr: u32, _: MemOpSize| IoPort::load(m, addr),
+        store: |m: &mut Machine, addr: u32, val: u32, _: MemOpSize| IoPort::store(m, addr, val),
     }
 }
 
@@ -80,12 +81,13 @@ fn isolate_cache_region(base: u32) -> MemoryRegion {
     MemoryRegion {
         base,
         size: 0x40000000,
-        load: |m: &Machine, addr: u32, size: MemOpSize| {
+        load: |_: &Machine, addr: u32, _: MemOpSize| {
             println!("WARN: Unhandled isolate cache read at 0x{:08X}", addr);
-            0
+            Ok(0)
         },
-        store: |m: &mut Machine, addr: u32, val: u32, size: MemOpSize| {
+        store: |_: &mut Machine, addr: u32, _: u32, _: MemOpSize| {
             println!("WARN: Unhandled isolate cache write at 0x{:08X}", addr);
+            Ok(())
         },
     }
 }
@@ -94,12 +96,13 @@ fn cache_ctrl(base: u32) -> MemoryRegion {
     MemoryRegion {
         base,
         size: 0x10,
-        load: |m: &Machine, addr: u32, size: MemOpSize| {
+        load: |_: &Machine, addr: u32, _: MemOpSize| {
             println!("WARN: Unhandled cache control read at 0x{:08X}", addr);
-            0
+            Ok(0)
         },
-        store: |m: &mut Machine, addr: u32, val: u32, size: MemOpSize| {
+        store: |_: &mut Machine, addr: u32, _: u32, _: MemOpSize| {
             println!("WARN: Unhandled cache control write at 0x{:08X}", addr);
+            Ok(())
         },
     }
 }
@@ -161,7 +164,7 @@ impl Bus {
 
     fn load(m: &Machine, addr: u32, size: MemOpSize) -> Result<u32, String> {
         match m.bus.lookup_region(addr) {
-            Some(region) => Ok((region.load)(m, addr - region.base, size)),
+            Some(region) => (region.load)(m, addr - region.base, size),
             None => Err(format!("Unhandled memory read at 0x{:08X}", addr)),
         }
     }
@@ -170,8 +173,7 @@ impl Bus {
         match m.bus.lookup_region(addr) {
             Some(region) => {
                 println!("MEM_WRITE 0x{:08X} <= {:08X}", addr, val);
-                (region.store)(m, addr - region.base, val, size);
-                Ok(())
+                (region.store)(m, addr - region.base, val, size)
             }
             None => Err(format!("Unhandled memory write at 0x{:08X}", addr)),
         }

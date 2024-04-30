@@ -1,6 +1,8 @@
 use std::rc::Rc;
 
-use super::{bus::Bus, Cop0, Cop0ExceptionParams, CpuInstEntry, CpuSlow, MemOpSize};
+use super::{
+    bus::Bus, ioport::IoPort, spu::Spu, Cop0, Cop0ExceptionParams, CpuInstEntry, CpuSlow, MemOpSize,
+};
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +13,8 @@ pub struct Machine {
     pub bus: Bus,
     pub cop0: Cop0,
     pub cpu: CpuSlow,
+    pub io: IoPort,
+    pub spu: Spu,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -20,6 +24,8 @@ pub struct MachineState {
     pub dcache: Vec<u8>,
     pub cpu: CpuSlow,
     pub cop0: Cop0,
+    pub io: IoPort,
+    pub spu: Spu,
 }
 
 impl Machine {
@@ -32,6 +38,8 @@ impl Machine {
             bus: Bus::new(),
             cop0: Cop0::new(),
             cpu: CpuSlow::new(),
+            io: IoPort::new(),
+            spu: Spu::new(),
         };
         rng.fill_bytes(m.ram.as_mut_slice());
         rng.fill_bytes(m.dcache.as_mut_slice());
@@ -45,6 +53,8 @@ impl Machine {
             dcache: self.dcache.clone(),
             cpu: self.cpu.clone(),
             cop0: self.cop0.clone(),
+            io: self.io.clone(),
+            spu: self.spu.clone(),
         }
     }
 

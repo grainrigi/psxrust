@@ -16,3 +16,5 @@ mod machine_logger;
 mod memory;
 mod memory_bus;
 mod memory_util;
+mod spu;
+mod timers;
