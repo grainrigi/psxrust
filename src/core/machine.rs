@@ -1,7 +1,8 @@
 use std::rc::Rc;
 
 use super::{
-    bus::Bus, ioport::IoPort, spu::Spu, Cop0, Cop0ExceptionParams, CpuInstEntry, CpuSlow, MemOpSize,
+    bus::Bus, ioport::IoPort, spu::Spu, timers::Timers, Cop0, Cop0ExceptionParams, CpuInstEntry,
+    CpuSlow, MemOpSize,
 };
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,7 @@ pub struct Machine {
     pub cpu: CpuSlow,
     pub io: IoPort,
     pub spu: Spu,
+    pub timers: Timers,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -26,6 +28,7 @@ pub struct MachineState {
     pub cop0: Cop0,
     pub io: IoPort,
     pub spu: Spu,
+    pub timers: Timers,
 }
 
 impl Machine {
@@ -40,6 +43,7 @@ impl Machine {
             cpu: CpuSlow::new(),
             io: IoPort::new(),
             spu: Spu::new(),
+            timers: Timers::new(),
         };
         rng.fill_bytes(m.ram.as_mut_slice());
         rng.fill_bytes(m.dcache.as_mut_slice());
@@ -55,6 +59,7 @@ impl Machine {
             cop0: self.cop0.clone(),
             io: self.io.clone(),
             spu: self.spu.clone(),
+            timers: self.timers.clone(),
         }
     }
 
@@ -76,7 +81,8 @@ impl Machine {
         self.cop0.cycle();
         self.cpu.cycle(self, &mut mu)?;
 
-        Bus::mutate(self, &mu)?;
+        self.timers.mutate(&mut mu);
+        Bus::mutate(self, &mut mu)?;
         // 例外処理のためcop0がcpuより先
         self.cop0.mutate(&mut mu)?;
         self.cpu.mutate(&mu);
@@ -95,6 +101,7 @@ pub struct MachineMutation {
     pub exception_branch: Option<u32>,
     pub exception_return: bool,
     pub icache_write: Option<(u32, Rc<CpuInstEntry>)>,
+    pub timer_mode_read: Option<u32>,
 }
 
 impl MachineMutation {
@@ -109,6 +116,7 @@ impl MachineMutation {
             exception_branch: None,
             exception_return: false,
             icache_write: None,
+            timer_mode_read: None,
         }
     }
 }

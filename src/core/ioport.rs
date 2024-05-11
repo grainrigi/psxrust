@@ -1,7 +1,7 @@
 use clap::builder::Str;
 use serde::{Deserialize, Serialize};
 
-use super::Machine;
+use super::{timers::TimerPort, Machine, MachineMutation};
 
 pub const IO_EXP1_BASE_ADDR: u32 = 0x0000;
 pub const IO_EXP2_BASE_ADDR: u32 = 0x0004;
@@ -243,12 +243,12 @@ pub const IO_SPU_SIZE: u32 = 0x0200;
 pub const IO_REG_SIZE: u32 = 0x01080;
 
 struct IoPortHandler {
-    load: fn(&Machine, u32) -> Result<u32, String>,
+    load: fn(&Machine, &mut MachineMutation, u32) -> Result<u32, String>,
     store: fn(&mut Machine, u32, u32) -> Result<(), String>,
 }
 
 const REG_HANDLER: IoPortHandler = IoPortHandler {
-    load: |m: &Machine, addr: u32| Ok(m.io.regs[addr as usize]),
+    load: |m: &Machine, mu: &mut MachineMutation, addr: u32| Ok(m.io.regs[addr as usize]),
     store: |m: &mut Machine, addr: u32, val: u32| {
         m.io.regs[addr as usize] = val;
         Ok(())
@@ -256,7 +256,7 @@ const REG_HANDLER: IoPortHandler = IoPortHandler {
 };
 
 const INTERRUPT_HANDLER: IoPortHandler = IoPortHandler {
-    load: |m: &Machine, addr: u32| match addr {
+    load: |m: &Machine, mu: &mut MachineMutation, addr: u32| match addr {
         IO_I_STAT => Ok(m.cop0.int_stat()),
         IO_I_MASK => Ok(m.cop0.int_mask()),
         _ => Err("Unexpected read from interrupt port".to_string()),
@@ -274,8 +274,44 @@ const INTERRUPT_HANDLER: IoPortHandler = IoPortHandler {
     },
 };
 
+const TIMER_HANDLER: IoPortHandler = IoPortHandler {
+    load: |m: &Machine, mu: &mut MachineMutation, addr: u32| {
+        let port: &dyn TimerPort = match (addr >> 4) & 0x0F {
+            0 => &m.timers.dotclock,
+            1 => &m.timers.hretrace,
+            2 => &m.timers.sysclock,
+            _ => return Err(format!("Unhandled timer port read at 0x{:08X}", addr)),
+        };
+        match addr & 0x0F {
+            0 => Ok(port.read_count()),
+            4 => {
+                mu.timer_mode_read = Some(addr);
+                Ok(port.read_mode())
+            }
+            8 => Ok(port.read_target()),
+            _ => Err(format!("Unhandled timer port read at 0x{:08X}", addr)),
+        }
+    },
+    store: |m: &mut Machine, addr: u32, val: u32| {
+        let port: &mut dyn TimerPort = match (addr >> 4) & 0x0F {
+            0 => &mut m.timers.dotclock,
+            1 => &mut m.timers.hretrace,
+            2 => &mut m.timers.sysclock,
+            _ => return Err(format!("Unhandled timer port write at 0x{:08X}", addr)),
+        };
+        match addr & 0x0F {
+            0 => Ok(port.write_count(val)),
+            4 => Ok(port.write_mode(val)),
+            8 => Ok(port.write_target(val)),
+            _ => return Err(format!("Unhandled timer port write at 0x{:08X}", addr)),
+        }
+    },
+};
+
 const DEBUG_HANDLER: IoPortHandler = IoPortHandler {
-    load: |m: &Machine, addr: u32| Err("Unexpected read from debug port".to_string()),
+    load: |m: &Machine, mu: &mut MachineMutation, addr: u32| {
+        Err("Unexpected read from debug port".to_string())
+    },
     store: |m: &mut Machine, addr: u32, val: u32| {
         println!("DEBUG_WRITE: {:08X}", val);
         Ok(())
@@ -283,7 +319,7 @@ const DEBUG_HANDLER: IoPortHandler = IoPortHandler {
 };
 
 const SPU_HANDLER: IoPortHandler = IoPortHandler {
-    load: |m: &Machine, addr: u32| m.spu.load(addr),
+    load: |m: &Machine, mu: &mut MachineMutation, addr: u32| m.spu.load(addr),
     store: |m: &mut Machine, addr: u32, val: u32| m.spu.store(addr, val),
 };
 
@@ -306,15 +342,20 @@ impl IoPort {
             | IO_BIOS_ROM | IO_SPU_DELAY | IO_CDROM_DELAY | IO_EXP2_DELAY_SIZE
             | IO_COMMON_DELAY | IO_RAM_SIZE => Some(&REG_HANDLER),
             IO_I_MASK | IO_I_STAT => Some(&INTERRUPT_HANDLER),
+            IO_TMR_DOTCLOCK_VAL | IO_TMR_DOTCLOCK_MODE | IO_TMR_DOTCLOCK_MAX
+            | IO_TMR_HRETRACE_VAL | IO_TMR_HRETRACE_MODE | IO_TMR_HRETRACE_MAX
+            | IO_TMR_SYSCLOCK_VAL | IO_TMR_SYSCLOCK_MODE | IO_TMR_SYSCLOCK_MAX => {
+                Some(&TIMER_HANDLER)
+            }
             IO_DEBUG_PORT => Some(&DEBUG_HANDLER),
             addr if addr >= IO_SPU_BASE && addr < IO_SPU_BASE + IO_SPU_SIZE => Some(&SPU_HANDLER),
             _ => None,
         }
     }
 
-    pub fn load(m: &Machine, addr: u32) -> Result<u32, String> {
+    pub fn load(m: &Machine, mu: &mut MachineMutation, addr: u32) -> Result<u32, String> {
         match IoPort::lookup_handler(addr) {
-            Some(handler) => (handler.load)(m, addr),
+            Some(handler) => (handler.load)(m, mu, addr),
             None => Err(format!("Unhandled IO read at 0x{:08X}", addr)),
         }
     }

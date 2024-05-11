@@ -100,7 +100,7 @@ impl CpuSlow {
         let (decoded, inststr) = match self.icache.get(&self.fetch.pc) {
             Some(entry) => (&entry.decoded, &entry.inststr),
             None => {
-                let inst = Bus::lw(m, self.fetch.pc)?;
+                let inst = Bus::lw(m, mu, self.fetch.pc)?;
                 let decoded_val = CpuInst::new(inst);
                 let inststr_val = format!(
                     "{:08X}: {:08X} {}",
@@ -348,27 +348,27 @@ impl CpuSlow {
             }
             OP_LB => {
                 let addr = self.reg.load_gpr(decoded.rs).wrapping_add(decoded.imm_se());
-                let val = Bus::lb(m, addr)?;
+                let val = Bus::lb(m, mu, addr)?;
                 mu.reg_write = Some((decoded.rt, val as i8 as u32));
             }
             OP_LH => {
                 let addr = self.reg.load_gpr(decoded.rs).wrapping_add(decoded.imm_se());
-                let val = Bus::lh(m, addr)?;
+                let val = Bus::lh(m, mu, addr)?;
                 mu.reg_write = Some((decoded.rt, val as i16 as u32));
             }
             OP_LW => {
                 let addr = self.reg.load_gpr(decoded.rs).wrapping_add(decoded.imm_se());
-                let val = Bus::lw(m, addr)?;
+                let val = Bus::lw(m, mu, addr)?;
                 mu.reg_write = Some((decoded.rt, val));
             }
             OP_LBU => {
                 let addr = self.reg.load_gpr(decoded.rs).wrapping_add(decoded.imm_se());
-                let val = Bus::lb(m, addr)?;
+                let val = Bus::lb(m, mu, addr)?;
                 mu.reg_write = Some((decoded.rt, val));
             }
             OP_LHU => {
                 let addr = self.reg.load_gpr(decoded.rs).wrapping_add(decoded.imm_se());
-                let val = Bus::lh(m, addr)?;
+                let val = Bus::lh(m, mu, addr)?;
                 mu.reg_write = Some((decoded.rt, val));
             }
             OP_SB => {
